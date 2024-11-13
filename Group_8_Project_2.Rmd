@@ -1,0 +1,305 @@
+---
+title: "Project_2: soybean.csv"
+output: 
+  html_document:
+    toc: true          
+    toc_depth: 3 
+    toc_float: 
+       collapsed: yes
+       smooth_scroll: yes
+    theme: journal
+    highlight: zenburn
+    
+---
+
+## Введение
+
+------------------------------------------------------------------------
+
+В данном проекте мы рассмотрим датасет `soybean.csv` и выполним следующие задачи:
+
+1.  Описание данных и EDA
+2.  Проверка статистических гипотез методом дисперсионного анализа
+3.  Построение моделей регрессионными методами
+
+
+**Загрузка датасета:**
+
+```{r message=FALSE, warning=FALSE}
+soybean <- read.csv('soybean.csv', row.names = 1)
+```
+
+
+## Библиотеки
+
+------------------------------------------------------------------------
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(outliers)
+library(kableExtra)
+```
+
+-   Библиотка `dplyr`: используется для пайпов, сортировки и фильтрации данных
+-   Библиотка `ggplot2`: используется для построения графиков
+-   Библиотка `outliers`: используется функция outlier() для удобного поиска наиболее экстремально отклоняющегося значения в переменных
+-   Библиотека `kableExtra`: используется для красивого вывода датафреймов в виде html-таблиц
+
+## EDA
+
+------------------------------------------------------------------------
+
+### Описание исходных данных
+
+Рассмотрим данные:
+
+::: {style="overflow-y: scroll; height: 300px; border: 1px solid #ddd; padding: 10px;"}
+```{r echo=FALSE}
+str(soybean)
+```
+:::
+
+В датасете `soybean.csv` есть следующие переменные:
+
+| Переменная | Описание | Тип |
+|-------------------|----------------------------------|-------------------|
+| id  | номер сорта | int |
+| leaf_shape | форма листа (round/lanceolate) | chr |
+| maturation_group | группа созревания (от 1(раннеспелый) до 6(позднеспелый)) | int |
+| lodging_type | полегание (yes/no/leaning) | chr |
+| growth_type | тип роста (indeterminant/semi_determinant/determinant) | chr |
+| flowering_group | группа цветения (от 1(ранний) до 5(поздний)) | num |
+| pubescence_colour | цвет опушения (light_gray/light_tawny/tawny/gray)  | chr |
+| corolla_colour | цвет венчика (white/purple) | chr |
+| origin | страна происхождения | chr |
+| productivity  | продуктивность ($g/m^2$) | num |
+| vegetation_period | вегетационный период (дни) | int |
+| protein_content | содержание белка (%) | num |
+| oil_content | содержание масла (%) | num |
+| site | локация (kub(Кубань)/lip(Липецк)) | chr |
+| year | год (2017-2021) | int |
+
+Рассмотрим данные по переменным с помощью функции `summary()`:
+
+::: {style="overflow-y: scroll; height: 300px; border: 1px solid #ddd; padding: 10px;"}
+```{r echo=FALSE}
+summary(soybean)
+```
+:::
+
+
+Можно отметить следующие моменты:
+
+- Переменные `leaf_shape`, `maturation_group`, `lodging_type`, `growth_type`, `flowering_group`, `pubescence_colour`, `corolla_colour` , `site` и `oil` логично представить как категориальные.
+- Переменные `origin`, `productivity`, `vegetation_period`, `protein_content` и `oil_content` содержат NA.
+
+Переведём переменные в факторный тип:
+
+::: {style="overflow-y: scroll; height: 150px; border: 1px solid #ddd; padding: 10px;"}
+```{r}
+soybean_factor <- soybean %>%
+  mutate(across(c(
+    leaf_shape, maturation_group, lodging_type, growth_type, flowering_group, 
+    pubescence_colour, corolla_colour, site, year
+  ), as.factor))
+```
+:::
+
+### Работа с пропущенными значениями
+
+- Всего в датасете `r sum(is.na(soybean))` пропущенных значений.
+- Переменная `origin` содержит  `r sum(is.na(soybean$origin))` пропущенных значений.
+- Переменная `productivity` содержит `r sum(is.na(soybean$productivity))` пропущенных значений.
+- Переменная `vegetation_period` содержит `r sum(is.na(soybean$vegetation_period))` пропущенных значений.
+- Переменная `protein_content` содержит `r sum(is.na(soybean$protein_content))` пропущенных значений.
+- Переменная `oil_content` содержит `r sum(is.na(soybean$oil_content))` пропущенных значений.
+
+Так как в датасете много пропущенных значений, стоит подробнее взгянуть на их структуру:
+
+- В датасете представлены наблюдения для сортов 1-330 в течении 2017-2021 годов. Однако, в датасете нет ни одного наблюдения по сортам 18, 38 и 156. 
+
+```{r echo=FALSE}
+reference <- expand.grid(
+  id = 1:330,         
+  year = 2017:2021    
+)
+reference$year <- as.factor(reference$year)
+
+missing_combinations <- anti_join(reference, soybean_factor, by = c("id", "year"))
+
+kable(missing_combinations, format = "html") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = T, font_size = 12) %>%
+  scroll_box(width = "50%", height = "300px")
+```
+
+- В 2017 году есть наблюдения только из Кубани, в остальные года наблюдения есть и из Кубани, и из Липецка.
+
+```{r echo=FALSE}
+table(soybean_factor$year, soybean_factor$site)
+```
+
+- В датасете встречаются сорта, для которых за все годы нет ни одного значения по переменным `productivity`, `vegetation_period`, `protein_content` и `oil_content`. Всего таких сортов 15.
+
+```{r  echo=FALSE, message=FALSE, warning=FALSE}
+na_summary <- soybean_factor %>%
+  group_by(id, year) %>%
+  summarise(
+    NA_productivity = sum(is.na(productivity)),
+    NA_vegetation_period = sum(is.na(vegetation_period)),
+    NA_protein_content = sum(is.na(protein_content)),
+    NA_oil_content = sum(is.na(oil_content)),
+    total_NA = sum(is.na(productivity), is.na(vegetation_period), 
+                   is.na(protein_content), is.na(oil_content))
+  ) %>%
+  ungroup() 
+no_data_sorts <- na_summary %>%
+  group_by(id) %>%
+  summarise(total_NA = sum(total_NA)) %>%
+  filter(total_NA == 36)
+
+kable(no_data_sorts, format = "html") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = T, font_size = 12) %>%
+  scroll_box(width = "50%", height = "300px")
+```
+
+- Кроме того, если посмотреть на сабсеты для Липецка и Кубани, можно заметить, что нет ни одного значения по этим четырем переменным за все годы наблюдений у 15 кубанских сортов (соответствуют приведенной выше таблице) и у 152 липецких сортов. 
+
+```{r  echo=FALSE, message=FALSE, warning=FALSE}
+na_summary_lip <- soybean_factor[soybean_factor$site == 'lip', ] %>%
+  group_by(id, year) %>%
+  summarise(
+    NA_productivity = sum(is.na(productivity)),
+    NA_vegetation_period = sum(is.na(vegetation_period)),
+    NA_protein_content = sum(is.na(protein_content)),
+    NA_oil_content = sum(is.na(oil_content)),
+    total_NA = sum(is.na(productivity), is.na(vegetation_period), 
+                   is.na(protein_content), is.na(oil_content))
+  ) %>%
+  ungroup() 
+
+no_data_sorts_lip <- na_summary_lip %>%
+  group_by(id) %>%
+  summarise(total_NA = sum(total_NA)) %>%
+  filter(total_NA == (n_distinct(soybean_factor[soybean_factor$site == 'lip', ]$year) * 4))
+
+kable(no_data_sorts_lip, format = "html") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = T, font_size = 12) %>%
+  scroll_box(width = "50%", height = "300px")
+```
+
+- Больше всего пропущенных значений наблюдается в 2021 году.
+
+```{r echo=FALSE}
+na_by_year <- soybean_factor %>%
+  group_by(year) %>%
+  summarise(
+    NA_productivity = sum(is.na(productivity)),
+    NA_vegetation_period = sum(is.na(vegetation_period)),
+    NA_protein_content = sum(is.na(protein_content)),
+    NA_oil_content = sum(is.na(oil_content))
+  )
+
+kable(na_by_year, format = "html") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = T, font_size = 12) %>%
+  scroll_box(width = "100%", height = "200px")
+```
+
+- Суммарно из 2943 наблюдений `r sum(apply(soybean_factor, 1, function(x) any(is.na(x))))` содержат хотя бы одно пропущенное значение, что составляет 59%. Удаление такого большого количества данных сильно скажется на последующем анализе. Логичным кажется решение заполнить пропущенные значения предсказаниями регрессионной модели.
+
+- Для построения моделей сделаем сабсет из наблюдений без NA.
+
+```{r}
+soybean_no_NA <- na.omit(soybean_factor)
+```
+
+
+### Поиск выбросов
+
+- В факторных и строковых переменных нет ошибок и опечаток.
+
+- Рассмотрим числовые переменные `productivity`, `vegetation_period`, `protein_content` и `oil_content`:
+
+```{r echo=FALSE}
+iqr_checker <- function(df, column) {
+  Q1 <- quantile(df[[column]], 0.25)
+  Q3 <- quantile(df[[column]], 0.75)
+  IQR <- IQR(df[[column]])
+  
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  
+  out_iqr <- df %>%
+    filter(df[[column]] < lower_bound | df[[column]] > upper_bound)
+  
+  return(out_iqr)
+}
+```
+
+- Рассмотрим значения `productivity`, отклоняющиеся более чем на 1.5 межквартильного размаха от среднего:
+
+```{r echo=FALSE}
+kable(iqr_checker(soybean_no_NA, "productivity"), format = "html") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = F, font_size = 12) %>%
+  scroll_box(width = "100%", height = "300px")
+```
+
+- Почти все значения приходятся на 2018 год и Липецк. На боксплоте заметно, что этот параметр был в целом относительно высок в это время. 
+
+```{r echo=FALSE}
+ggplot(soybean_no_NA, aes(x = site, y = productivity)) +
+  geom_boxplot() +
+  facet_wrap(~ year) +  # Разделение графиков по годам
+  labs(
+    title = "stat-productivity boxplot",
+    x = "productivity",
+    y = "stat"
+  )
+```
+
+- Также наблюдается несколько отклонений по `protein_content`:
+
+```{r echo=FALSE}
+kable(iqr_checker(soybean_no_NA, "protein_content"), format = "html") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = F, font_size = 12) %>%
+  scroll_box(width = "100%", height = "300px")
+```
+
+- И по `oil_content`:
+
+```{r echo=FALSE}
+kable(iqr_checker(soybean_no_NA, "oil_content"), format = "html") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = F, font_size = 12) %>%
+  scroll_box(width = "100%", height = "300px")
+```
+
+- Отклоняющихся значений довольно много и, скорее всего, их будет неправильно считать выбросами. Экстремальные значения могут быть обусловлены особенностями сорта, погодными условиями и внешними факторами, и среди них не наблюдается значений, похожих на опечатку или ошибку данных.  
+
+## Построение регрессионных моделей 
+
+---
+
+### Первая модель 
+
+блаблабла
+
+### Вторая модель
+
+блаблабла
+
+## Дисперсионный анализ
+
+---
+
+### Первая гипотеза
+
+гипотеза
+
+### Вторая гипотеза
+
+еще гипотеза
+
+## Выводы
+
+мы сделали самый лучший отчет
+
