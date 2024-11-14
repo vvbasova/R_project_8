@@ -37,7 +37,6 @@ soybean <- read.csv('soybean.csv', row.names = 1)
 ```{r message=FALSE, warning=FALSE}
 library(dplyr)
 library(ggplot2)
-library(outliers)
 library(kableExtra)
 ```
 
@@ -218,7 +217,7 @@ soybean_no_NA <- na.omit(soybean_factor)
 
 - В факторных и строковых переменных нет ошибок и опечаток.
 
-- Рассмотрим числовые переменные `productivity`, `vegetation_period`, `protein_content` и `oil_content`:
+ Рассмотрим числовые переменные `productivity`, `vegetation_period`, `protein_content` и `oil_content`:
 
 ```{r echo=FALSE}
 iqr_checker <- function(df, column) {
@@ -236,7 +235,7 @@ iqr_checker <- function(df, column) {
 }
 ```
 
-- Рассмотрим значения `productivity`, отклоняющиеся более чем на 1.5 межквартильного размаха от среднего:
+- Рассмотрим значения `productivity`, отклоняющиеся более чем на 1.5 межквартильного размаха от первого и третьего квартиля:
 
 ```{r echo=FALSE}
 kable(iqr_checker(soybean_no_NA, "productivity"), format = "html") %>%
@@ -251,9 +250,9 @@ ggplot(soybean_no_NA, aes(x = site, y = productivity)) +
   geom_boxplot() +
   facet_wrap(~ year) +  # Разделение графиков по годам
   labs(
-    title = "stat-productivity boxplot",
-    x = "productivity",
-    y = "stat"
+    title = "stat-productivity boxplot by year",
+    x = "stat",
+    y = "productivity"
   )
 ```
 
